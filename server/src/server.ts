@@ -1,6 +1,8 @@
 import app from './app';
 import { config } from './config/env';
+import { connectDB } from './config/db';
 import { logger } from './utils/logger';
+import mongoose from 'mongoose';
 
 const startServer = (port: number) => {
   const server = app.listen(port, () => {
@@ -24,8 +26,15 @@ const startServer = (port: number) => {
     }
   });
 
-  const shutdown = () => {
-    logger.info('Shutdown signal received. Closing HTTP server...');
+  const shutdown = async () => {
+    logger.info('Shutdown signal received. Closing connections...');
+    try {
+      await mongoose.connection.close();
+      logger.info('MongoDB connection closed.');
+    } catch (dbErr) {
+      logger.error('Error closing MongoDB connection:', dbErr);
+    }
+
     server.close(() => {
       logger.info('HTTP server closed.');
       process.exit(0);
@@ -36,4 +45,10 @@ const startServer = (port: number) => {
   process.on('SIGINT', shutdown);
 };
 
-startServer(config.port);
+// Connect to database before starting the Express server
+const bootstrap = async () => {
+  await connectDB();
+  startServer(config.port);
+};
+
+bootstrap();

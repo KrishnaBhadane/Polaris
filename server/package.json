@@ -8,13 +8,18 @@
     "build": "rimraf dist && tsc",
     "start": "node dist/server.js"
   },
-  "keywords": ["express", "typescript", "polaris"],
+  "keywords": [
+    "express",
+    "typescript",
+    "polaris"
+  ],
   "author": "",
   "license": "ISC",
   "dependencies": {
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
-    "express": "^4.21.2"
+    "express": "^4.21.2",
+    "mongoose": "^9.9.4"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
