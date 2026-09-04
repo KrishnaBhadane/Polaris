@@ -12,4 +12,7 @@ export const config = {
   emailUser: process.env.EMAIL_USER || '',
   emailAppPassword: process.env.EMAIL_APP_PASSWORD || '',
   jwtSecret: process.env.JWT_SECRET || 'polaris_jwt_secret_dev_key_2026',
+  adminName: process.env.ADMIN_NAME || 'POLARIS Administrator',
+  adminEmail: process.env.ADMIN_EMAIL || '',
+  adminPassword: process.env.ADMIN_PASSWORD || '',
 };
