@@ -3,7 +3,7 @@ import jwt from 'jsonwebtoken';
 import { config } from '../config/env';
 import { User } from '../models/user.model';
 import { JWTPayload } from '../types/auth.types';
-import { AccountStatus } from '../types/user.types';
+import { UserRole, AccountStatus } from '../types/user.types';
 
 export const requireAuth = async (
   req: Request,
@@ -67,4 +67,26 @@ export const requireAuth = async (
   } catch (error) {
     next(error);
   }
+};
+
+export const requireRole = (...roles: (UserRole | string)[]) => {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    if (!req.user) {
+      res.status(401).json({
+        success: false,
+        message: 'Authentication required.',
+      });
+      return;
+    }
+
+    if (!roles.includes(req.user.role)) {
+      res.status(403).json({
+        success: false,
+        message: 'Forbidden. Access restricted to administrator accounts.',
+      });
+      return;
+    }
+
+    next();
+  };
 };
