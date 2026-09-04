@@ -1,2 +1,2 @@
-// Models folder placeholder - MongoDB models will be added here in future phases
-export {};
+export * from './user.model';
+export { default as User } from './user.model';
