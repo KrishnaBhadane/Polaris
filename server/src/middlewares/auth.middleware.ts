@@ -82,7 +82,7 @@ export const requireRole = (...roles: (UserRole | string)[]) => {
     if (!roles.includes(req.user.role)) {
       res.status(403).json({
         success: false,
-        message: 'Forbidden. Access restricted to administrator accounts.',
+        message: `Forbidden. Access restricted to ${roles.join(' or ')} accounts.`,
       });
       return;
     }
