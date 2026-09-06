@@ -1,6 +1,5 @@
 import dns from 'dns';
 import nodemailer, { Transporter } from 'nodemailer';
-import { Resend } from 'resend';
 import { config } from '../config/env';
 import { logger } from '../utils/logger';
 
@@ -8,43 +7,62 @@ import { logger } from '../utils/logger';
 const isProduction = config.nodeEnv === 'production';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PRODUCTION: Resend HTTPS API
-// Render Free blocks outbound SMTP (ports 25/465/587 are unreachable).
-// Resend communicates over HTTPS — no SMTP port needed.
+// PRODUCTION: Brevo Transactional Email HTTPS API
+// Render Free blocks outbound SMTP ports (25 / 465 / 587 are unreachable).
+// Brevo's REST API communicates over HTTPS — no SMTP port required.
 // ─────────────────────────────────────────────────────────────────────────────
 
-let _resendClient: Resend | null = null;
+const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email';
 
-const getResendClient = (): Resend => {
-  if (!_resendClient) {
-    _resendClient = new Resend(config.resendApiKey);
-  }
-  return _resendClient;
-};
-
-async function sendViaResend(
+async function sendViaBrevo(
   email: string,
   otp: string,
   recipientName: string
 ): Promise<void> {
-  const client = getResendClient();
+  const payload = {
+    sender: {
+      name: config.brevoSenderName,
+      email: config.brevoSenderEmail,
+    },
+    to: [{ email }],
+    subject: 'POLARIS - Your Email Verification Code',
+    textContent: buildTextBody(recipientName, otp),
+    htmlContent: buildHtmlBody(recipientName, otp),
+  };
 
   const t0 = Date.now();
-  const { data, error } = await client.emails.send({
-    from: config.emailFrom,
-    to: email,
-    subject: 'POLARIS - Your Email Verification Code',
-    text: buildTextBody(recipientName, otp),
-    html: buildHtmlBody(recipientName, otp),
-  });
-
-  if (error) {
-    // Log sanitized diagnostic — never expose API key or internal details
-    logger.error(`[Email] Resend API error (${Date.now() - t0}ms): ${error.message ?? 'unknown'}`);
+  let res: Response;
+  try {
+    res = await fetch(BREVO_API_URL, {
+      method: 'POST',
+      headers: {
+        'api-key': config.brevoApiKey,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+  } catch (err: unknown) {
+    // Network-level failure (DNS, TCP, timeout)
+    const msg = err instanceof Error ? err.message : 'network error';
+    logger.error(`[Email] Brevo API network error (${Date.now() - t0}ms): ${msg}`);
     throw new Error("We couldn't send the verification code. Please try again.");
   }
 
-  logger.info(`[Auth Timing] email API send: ${Date.now() - t0}ms — id:${data?.id ?? 'n/a'}`);
+  if (!res.ok) {
+    // API-level error — log sanitized status, never expose key or body internals
+    let sanitizedMessage = `HTTP ${res.status}`;
+    try {
+      const body = await res.json() as Record<string, unknown>;
+      if (typeof body.message === 'string') sanitizedMessage += ` — ${body.message}`;
+    } catch {
+      // ignore parse errors
+    }
+    logger.error(`[Email] Brevo API error (${Date.now() - t0}ms): ${sanitizedMessage}`);
+    throw new Error("We couldn't send the verification code. Please try again.");
+  }
+
+  logger.info(`[Auth Timing] email API send: ${Date.now() - t0}ms`);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -144,7 +162,7 @@ async function sendViaSmtp(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Shared email body builders — keep the existing POLARIS template unchanged
+// Shared email body builders — existing POLARIS template, unchanged
 // ─────────────────────────────────────────────────────────────────────────────
 
 function buildTextBody(recipientName: string, otp: string): string {
@@ -192,12 +210,12 @@ export const sendVerificationEmail = async (
   const recipientName = name || 'User';
 
   if (isProduction) {
-    // ── Production: Resend HTTPS ──────────────────────────────────────────
-    if (!config.resendApiKey || !config.emailFrom) {
-      logger.error('[Email] RESEND_API_KEY or EMAIL_FROM is missing. Cannot send OTP.');
+    // ── Production: Brevo HTTPS ───────────────────────────────────────────
+    if (!config.brevoApiKey || !config.brevoSenderEmail) {
+      logger.error('[Email] BREVO_API_KEY or BREVO_SENDER_EMAIL is missing. Cannot send OTP.');
       throw new Error('Email service is not configured on this server.');
     }
-    await sendViaResend(email, otp, recipientName);
+    await sendViaBrevo(email, otp, recipientName);
   } else {
     // ── Development: Gmail SMTP ───────────────────────────────────────────
     if (!config.emailUser || !config.emailAppPassword) {

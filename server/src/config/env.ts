@@ -36,9 +36,10 @@ export const config = {
   // Development email (Nodemailer / Gmail SMTP)
   emailUser: process.env.EMAIL_USER || '',
   emailAppPassword: process.env.EMAIL_APP_PASSWORD || '',
-  // Production email (Resend HTTPS API)
-  resendApiKey: process.env.RESEND_API_KEY || '',
-  emailFrom: process.env.EMAIL_FROM || '',
+  // Production email (Brevo Transactional HTTPS API)
+  brevoApiKey: process.env.BREVO_API_KEY || '',
+  brevoSenderEmail: process.env.BREVO_SENDER_EMAIL || '',
+  brevoSenderName: process.env.BREVO_SENDER_NAME || 'POLARIS',
   jwtSecret: resolveJwtSecret(),
   adminName: process.env.ADMIN_NAME || 'POLARIS Administrator',
   adminEmail: process.env.ADMIN_EMAIL || '',
@@ -70,9 +71,10 @@ export function validateProductionEnv(): void {
   if (!config.cloudinaryApiKey) missing.push('CLOUDINARY_API_KEY');
   if (!config.cloudinaryApiSecret) missing.push('CLOUDINARY_API_SECRET');
 
-  // Production uses Resend HTTPS API — Gmail SMTP credentials are NOT required in production.
-  if (!config.resendApiKey) missing.push('RESEND_API_KEY (required for production OTP email delivery)');
-  if (!config.emailFrom) missing.push('EMAIL_FROM (required for production OTP email sender address)');
+  // Production uses Brevo HTTPS API — Gmail SMTP credentials are NOT required in production.
+  if (!config.brevoApiKey) missing.push('BREVO_API_KEY (required for production OTP email delivery)');
+  if (!config.brevoSenderEmail) missing.push('BREVO_SENDER_EMAIL (required for production OTP email sender)');
+  if (!config.brevoSenderName) missing.push('BREVO_SENDER_NAME (required for production OTP email sender name)');
 
   if (missing.length > 0) {
     throw new Error(
