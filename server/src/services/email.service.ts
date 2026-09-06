@@ -1,27 +1,67 @@
 import dns from 'dns';
 import nodemailer, { Transporter } from 'nodemailer';
+import { Resend } from 'resend';
 import { config } from '../config/env';
 import { logger } from '../utils/logger';
 
-// ─── IPv4 DNS resolution ─────────────────────────────────────────────────────
-// Render's network cannot reach Gmail over IPv6 (ENETUNREACH on IPv6 routes).
-// We resolve smtp.gmail.com using dns.resolve4() which returns A records only
-// (IPv4), then pass the resolved address as `host` so Nodemailer never
-// attempts an IPv6 connection. TLS servername is preserved so cert validation
-// works correctly against smtp.gmail.com even though we connect by IP.
+// ─── Environment flag ─────────────────────────────────────────────────────────
+const isProduction = config.nodeEnv === 'production';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PRODUCTION: Resend HTTPS API
+// Render Free blocks outbound SMTP (ports 25/465/587 are unreachable).
+// Resend communicates over HTTPS — no SMTP port needed.
+// ─────────────────────────────────────────────────────────────────────────────
+
+let _resendClient: Resend | null = null;
+
+const getResendClient = (): Resend => {
+  if (!_resendClient) {
+    _resendClient = new Resend(config.resendApiKey);
+  }
+  return _resendClient;
+};
+
+async function sendViaResend(
+  email: string,
+  otp: string,
+  recipientName: string
+): Promise<void> {
+  const client = getResendClient();
+
+  const t0 = Date.now();
+  const { data, error } = await client.emails.send({
+    from: config.emailFrom,
+    to: email,
+    subject: 'POLARIS - Your Email Verification Code',
+    text: buildTextBody(recipientName, otp),
+    html: buildHtmlBody(recipientName, otp),
+  });
+
+  if (error) {
+    // Log sanitized diagnostic — never expose API key or internal details
+    logger.error(`[Email] Resend API error (${Date.now() - t0}ms): ${error.message ?? 'unknown'}`);
+    throw new Error("We couldn't send the verification code. Please try again.");
+  }
+
+  logger.info(`[Auth Timing] email API send: ${Date.now() - t0}ms — id:${data?.id ?? 'n/a'}`);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DEVELOPMENT: Gmail SMTP via Nodemailer
+// Uses dns.resolve4 to force IPv4 in case the dev machine also has IPv6.
+// ─────────────────────────────────────────────────────────────────────────────
 
 const GMAIL_SMTP_HOST = 'smtp.gmail.com';
 const GMAIL_SMTP_PORT = 465;
 
-// Node's default resolver prefers IPv6 (AAAA) when both exist. Set ipv4first
-// as an additional safety net for any other DNS lookups in this process.
+// Prefer IPv4 for any other DNS lookups in this process
 dns.setDefaultResultOrder('ipv4first');
 
-/** Resolve smtp.gmail.com → first IPv4 address (A record). */
-async function resolveGmailIpv4(): Promise<string> {
+function resolveGmailIpv4(): Promise<string> {
   return new Promise((resolve, reject) => {
     dns.resolve4(GMAIL_SMTP_HOST, (err, addresses) => {
-      if (err || !addresses || addresses.length === 0) {
+      if (err || !addresses?.length) {
         reject(err ?? new Error('dns.resolve4 returned no addresses'));
       } else {
         resolve(addresses[0]);
@@ -30,14 +70,10 @@ async function resolveGmailIpv4(): Promise<string> {
   });
 }
 
-// ─── Singleton transporter ───────────────────────────────────────────────────
-// Rebuilt whenever the resolved IPv4 address changes (DNS TTL drift).
-let _transporter: Transporter | null = null;
-let _resolvedIp: string | null = null;
+let _smtpTransporter: Transporter | null = null;
+let _resolvedSmtpIp: string | null = null;
 
-async function getTransporter(): Promise<Transporter> {
-  // Re-resolve every call (result is fast from OS DNS cache).
-  // Recreate transporter only when the IP actually changes.
+async function getSmtpTransporter(): Promise<Transporter> {
   let currentIp: string;
   try {
     currentIp = await resolveGmailIpv4();
@@ -47,22 +83,20 @@ async function getTransporter(): Promise<Transporter> {
     throw new Error('Unable to resolve mail server address. Please try again.');
   }
 
-  if (_transporter && currentIp === _resolvedIp) {
-    return _transporter;
+  if (_smtpTransporter && currentIp === _resolvedSmtpIp) {
+    return _smtpTransporter;
   }
 
-  // IP changed (or first call) — rebuild transporter.
-  if (_resolvedIp && currentIp !== _resolvedIp) {
-    logger.info(`[Email] Gmail SMTP IPv4 changed (${_resolvedIp} → ${currentIp}), recreating transporter.`);
+  if (_resolvedSmtpIp && currentIp !== _resolvedSmtpIp) {
+    logger.info(`[Email] Gmail SMTP IPv4 changed (${_resolvedSmtpIp} → ${currentIp}), recreating transporter.`);
   }
 
-  _resolvedIp = currentIp;
-  _transporter = nodemailer.createTransport({
-    // Explicit host bypasses Nodemailer's own DNS lookup (which could pick IPv6).
+  _resolvedSmtpIp = currentIp;
+  _smtpTransporter = nodemailer.createTransport({
     host: currentIp,
     port: GMAIL_SMTP_PORT,
-    secure: true,               // TLS on port 465
-    pool: true,                 // Reuse SMTP connections
+    secure: true,
+    pool: true,
     maxConnections: 2,
     maxMessages: 50,
     auth: {
@@ -70,80 +104,106 @@ async function getTransporter(): Promise<Transporter> {
       pass: config.emailAppPassword,
     },
     tls: {
-      // Required when connecting by IP: tells Node TLS which hostname to
-      // validate the server certificate against.
+      // Validate the cert against the correct hostname even though we connect by IP
       servername: GMAIL_SMTP_HOST,
-      // DO NOT set rejectUnauthorized: false — full cert validation is kept.
     },
-    // Timeout guards — prevents silent hangs on Render
-    connectionTimeout: 10_000,  // 10 s to establish TCP connection
-    greetingTimeout:  10_000,   // 10 s for SMTP EHLO greeting
-    socketTimeout:    15_000,   // 15 s of inactivity on an open socket
+    connectionTimeout: 10_000,
+    greetingTimeout:  10_000,
+    socketTimeout:    15_000,
   });
 
-  logger.info(`[Email] Transporter created using Gmail SMTP via IPv4 (${currentIp})`);
-  return _transporter;
+  logger.info(`[Email] SMTP transporter created via IPv4 (${currentIp})`);
+  return _smtpTransporter;
 }
 
-// ─── sendVerificationEmail ───────────────────────────────────────────────────
-// Throws on failure — callers must handle and surface the error appropriately.
+async function sendViaSmtp(
+  email: string,
+  otp: string,
+  recipientName: string
+): Promise<void> {
+  const transporter = await getSmtpTransporter();
+
+  const t0 = Date.now();
+  try {
+    await transporter.sendMail({
+      from: `"POLARIS Platform" <${config.emailUser}>`,
+      to: email,
+      subject: 'POLARIS - Your Email Verification Code',
+      text: buildTextBody(recipientName, otp),
+      html: buildHtmlBody(recipientName, otp),
+    });
+    logger.info(`[Auth Timing] email send: ${Date.now() - t0}ms`);
+  } catch (err: unknown) {
+    const sanitized = err instanceof Error ? err.message : 'Unknown SMTP error';
+    logger.error(`[Email] sendMail failed (${Date.now() - t0}ms): ${sanitized}`);
+    // Invalidate transporter so next call rebuilds with a fresh IP
+    _smtpTransporter = null;
+    _resolvedSmtpIp = null;
+    throw new Error("We couldn't send the verification code. Please try again.");
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared email body builders — keep the existing POLARIS template unchanged
+// ─────────────────────────────────────────────────────────────────────────────
+
+function buildTextBody(recipientName: string, otp: string): string {
+  return (
+    `Hello ${recipientName},\n\n` +
+    `Your POLARIS verification code is: ${otp}\n\n` +
+    `This code will expire in 10 minutes. If you did not request this, please ignore this email.\n\n` +
+    `Best regards,\nPOLARIS Team`
+  );
+}
+
+function buildHtmlBody(recipientName: string, otp: string): string {
+  return `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #0f172a; color: #f8fafc;">
+      <div style="text-align: center; margin-bottom: 24px;">
+        <h2 style="color: #818cf8; margin: 0; font-size: 24px; letter-spacing: 2px;">POLARIS</h2>
+        <p style="color: #94a3b8; font-size: 14px; margin-top: 4px;">Email Verification</p>
+      </div>
+
+      <p style="font-size: 16px; line-height: 24px; color: #e2e8f0;">Hello <strong>${recipientName}</strong>,</p>
+      <p style="font-size: 14px; line-height: 22px; color: #cbd5e1;">Thank you for registering on POLARIS. Please use the verification code below to verify your email address:</p>
+
+      <div style="background-color: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 18px; text-align: center; margin: 24px 0;">
+        <span style="font-family: monospace; font-size: 32px; font-weight: 700; letter-spacing: 8px; color: #38bdf8;">${otp}</span>
+      </div>
+
+      <p style="font-size: 13px; color: #94a3b8; line-height: 20px;">This code will expire in <strong>10 minutes</strong>. If you did not request this code, you can safely ignore this email.</p>
+
+      <hr style="border: none; border-top: 1px solid #334155; margin: 24px 0;" />
+
+      <p style="font-size: 12px; color: #64748b; text-align: center; margin: 0;">&copy; ${new Date().getFullYear()} POLARIS. All rights reserved.</p>
+    </div>
+  `;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Public API — controllers call this; provider is transparent to callers
+// ─────────────────────────────────────────────────────────────────────────────
+
 export const sendVerificationEmail = async (
   email: string,
   otp: string,
   name?: string
 ): Promise<void> => {
-  if (!config.emailUser || !config.emailAppPassword) {
-    logger.warn(
-      'EMAIL_USER or EMAIL_APP_PASSWORD is not configured. Email dispatch skipped.'
-    );
-    // In production this would be caught by validateProductionEnv(); still
-    // throw so the caller knows the email was NOT sent.
-    throw new Error('Email service is not configured on this server.');
-  }
-
-  const transporter = await getTransporter();
   const recipientName = name || 'User';
 
-  const mailOptions = {
-    from: `"POLARIS Platform" <${config.emailUser}>`,
-    to: email,
-    subject: 'POLARIS - Your Email Verification Code',
-    text: `Hello ${recipientName},\n\nYour POLARIS verification code is: ${otp}\n\nThis code will expire in 10 minutes. If you did not request this, please ignore this email.\n\nBest regards,\nPOLARIS Team`,
-    html: `
-      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #0f172a; color: #f8fafc;">
-        <div style="text-align: center; margin-bottom: 24px;">
-          <h2 style="color: #818cf8; margin: 0; font-size: 24px; letter-spacing: 2px;">POLARIS</h2>
-          <p style="color: #94a3b8; font-size: 14px; margin-top: 4px;">Email Verification</p>
-        </div>
-        
-        <p style="font-size: 16px; line-height: 24px; color: #e2e8f0;">Hello <strong>${recipientName}</strong>,</p>
-        <p style="font-size: 14px; line-height: 22px; color: #cbd5e1;">Thank you for registering on POLARIS. Please use the verification code below to verify your email address:</p>
-        
-        <div style="background-color: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 18px; text-align: center; margin: 24px 0;">
-          <span style="font-family: monospace; font-size: 32px; font-weight: 700; letter-spacing: 8px; color: #38bdf8;">${otp}</span>
-        </div>
-        
-        <p style="font-size: 13px; color: #94a3b8; line-height: 20px;">This code will expire in <strong>10 minutes</strong>. If you did not request this code, you can safely ignore this email.</p>
-        
-        <hr style="border: none; border-top: 1px solid #334155; margin: 24px 0;" />
-        
-        <p style="font-size: 12px; color: #64748b; text-align: center; margin: 0;">&copy; ${new Date().getFullYear()} POLARIS. All rights reserved.</p>
-      </div>
-    `,
-  };
-
-  const t0 = Date.now();
-  try {
-    await transporter.sendMail(mailOptions);
-    logger.info(`[Auth Timing] email send: ${Date.now() - t0}ms — recipient verified`);
-  } catch (err: unknown) {
-    // Log sanitized error internally; never expose credentials or internals.
-    const sanitized = err instanceof Error ? err.message : 'Unknown SMTP error';
-    logger.error(`[Email] sendMail failed (${Date.now() - t0}ms): ${sanitized}`);
-    // Invalidate transporter so next call rebuilds with a fresh IP resolution
-    _transporter = null;
-    _resolvedIp = null;
-    // Re-throw a clean user-facing error
-    throw new Error("We couldn't send the verification code. Please try again.");
+  if (isProduction) {
+    // ── Production: Resend HTTPS ──────────────────────────────────────────
+    if (!config.resendApiKey || !config.emailFrom) {
+      logger.error('[Email] RESEND_API_KEY or EMAIL_FROM is missing. Cannot send OTP.');
+      throw new Error('Email service is not configured on this server.');
+    }
+    await sendViaResend(email, otp, recipientName);
+  } else {
+    // ── Development: Gmail SMTP ───────────────────────────────────────────
+    if (!config.emailUser || !config.emailAppPassword) {
+      logger.warn('[Email] EMAIL_USER or EMAIL_APP_PASSWORD not set. Email dispatch skipped.');
+      throw new Error('Email service is not configured on this server.');
+    }
+    await sendViaSmtp(email, otp, recipientName);
   }
 };
