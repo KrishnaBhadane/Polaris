@@ -15,6 +15,10 @@ export interface IScientistProfile {
   officialEmail: string;
   employeeOrScientistId: string;
   idProofUrl: string;
+  idProofPublicId?: string;
+  idProofResourceType?: string;
+  idProofFormat?: string;
+  idProofDeliveryType?: string;
   bio?: string;
   verificationStatus: ScientistVerificationStatus;
   rejectionReason?: string;
@@ -31,6 +35,11 @@ export interface ScientistApplicationInput {
   researchArea: string;
   officialEmail: string;
   employeeOrScientistId: string;
-  idProofUrl: string;
+  idProofUrl?: string;
+  idProofPublicId?: string;
+  idProofResourceType?: string;
+  idProofFormat?: string;
+  idProofDeliveryType?: string;
   bio?: string;
 }
+

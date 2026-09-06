@@ -1,5 +1,5 @@
 import app from './app';
-import { config } from './config/env';
+import { config, validateProductionEnv } from './config/env';
 import { connectDB } from './config/db';
 import { logger } from './utils/logger';
 import mongoose from 'mongoose';
@@ -47,6 +47,7 @@ const startServer = (port: number) => {
 
 // Connect to database before starting the Express server
 const bootstrap = async () => {
+  validateProductionEnv();
   await connectDB();
   startServer(config.port);
 };

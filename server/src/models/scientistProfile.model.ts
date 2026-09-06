@@ -50,8 +50,28 @@ const scientistProfileSchema = new Schema<IScientistProfileDocument>(
     },
     idProofUrl: {
       type: String,
-      required: [true, 'ID Proof URL or reference is required'],
+      required: [true, 'ID Proof reference is required'],
       trim: true,
+    },
+    idProofPublicId: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    idProofResourceType: {
+      type: String,
+      trim: true,
+      default: 'image',
+    },
+    idProofFormat: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    idProofDeliveryType: {
+      type: String,
+      trim: true,
+      default: 'authenticated',
     },
     bio: {
       type: String,

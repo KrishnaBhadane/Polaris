@@ -208,3 +208,70 @@ export const getContentById = async (
     next(error);
   }
 };
+
+export const removeMyContent = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const user = req.user;
+    if (!user) {
+      res.status(401).json({
+        success: false,
+        message: 'Authentication required.',
+      });
+      return;
+    }
+
+    const { id } = req.params;
+    const { reason } = req.body;
+
+    const content = await Content.findById(id);
+
+    if (!content) {
+      res.status(404).json({
+        success: false,
+        message: 'Content not found.',
+      });
+      return;
+    }
+
+    // Scientist can remove ONLY their own content
+    const scientistId = content.scientist.toString();
+    if (scientistId !== user._id.toString()) {
+      res.status(403).json({
+        success: false,
+        message: 'You do not have permission to remove this submission.',
+      });
+      return;
+    }
+
+    // If already REMOVED: return 409 Conflict
+    if (content.status === ContentStatus.REMOVED) {
+      res.status(409).json({
+        success: false,
+        message: 'Content is already removed.',
+      });
+      return;
+    }
+
+    // Soft delete: update status to REMOVED
+    content.status = ContentStatus.REMOVED;
+    content.removedBy = user._id;
+    content.removedAt = new Date();
+    if (reason && typeof reason === 'string') {
+      content.removalReason = reason.trim();
+    }
+    await content.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Content removed successfully.',
+      data: content,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+

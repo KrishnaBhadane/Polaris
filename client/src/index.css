@@ -1,13 +1,163 @@
 @import "tailwindcss";
 
-:root {
-  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
-  color-scheme: light dark;
+@layer base {
+  :root {
+    --bg-primary: #ffffff;
+    --bg-secondary: #f8fafc;
+    --bg-card: #ffffff;
+    --ice-blue: #0ea5e9;
+    --ice-light: #e0f2fe;
+    --ice-cream: #f1f5f9;
+    --ice-accent: #38bdf8;
+    --text-primary: #0f172a;
+    --text-muted: #64748b;
+    --border-subtle: rgba(0, 0, 0, 0.08);
+    --border-ice: rgba(14, 165, 233, 0.3);
+  }
+
+  body {
+    background-color: #ffffff;
+    color: #0f172a;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    letter-spacing: -0.01em;
+    margin: 0;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
 }
 
-body {
-  margin: 0;
-  min-height: 100vh;
+/* Custom Apple-inspired utility classes */
+.apple-card {
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 16px;
+  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.04);
+}
+
+.apple-card:hover {
+  border-color: rgba(14, 165, 233, 0.4);
+  box-shadow: 0 8px 30px -4px rgba(14, 165, 233, 0.12);
+}
+
+/* Light icy blue with crystal shine button effect */
+.ice-crystal-btn {
+  background: linear-gradient(135deg, #0ea5e9 0%, #38bdf8 50%, #7dd3fc 100%);
+  color: #041322;
+  font-weight: 600;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 2px 10px rgba(14, 165, 233, 0.25), inset 0 1px 1px rgba(255, 255, 255, 0.6);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+}
+
+.ice-crystal-btn::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -150%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.6) 50%,
+    transparent 100%
+  );
+  transform: skewX(-20deg);
+  transition: left 0.75s ease;
+}
+
+.ice-crystal-btn:hover::before {
+  left: 150%;
+}
+
+.ice-crystal-btn:hover {
+  box-shadow: 0 4px 20px rgba(14, 165, 233, 0.45), inset 0 1px 2px rgba(255, 255, 255, 0.8);
+  transform: translateY(-1px);
+}
+
+.ice-crystal-subtle-btn {
+  background: #f0f9ff;
+  color: #0369a1;
+  border: 1px solid #bae6fd;
+  font-weight: 600;
+  box-shadow: 0 1px 4px rgba(14, 165, 233, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  transition: all 0.2s ease;
+}
+
+.ice-crystal-subtle-btn:hover {
+  background: #e0f2fe;
+  border-color: #7dd3fc;
+  color: #0284c7;
+  box-shadow: 0 2px 10px rgba(14, 165, 233, 0.18);
+}
+
+.ice-btn {
+  background: #0ea5e9;
+  color: #ffffff;
+  transition: all 0.15s ease-in-out;
+}
+
+.ice-btn:hover {
+  background: #0284c7;
+  box-shadow: 0 0 16px rgba(14, 165, 233, 0.35);
+}
+
+.ice-glow {
+  box-shadow: 0 0 24px rgba(14, 165, 233, 0.25);
+}
+
+/* Seamless, non-stopping, infinite crystal ray light refraction inside POLARIS typography */
+@keyframes seamlessCrystalFlow {
+  0% {
+    background-position: 0% 50%;
+  }
+  100% {
+    background-position: -200% 50%;
+  }
+}
+
+.polar-crystal-text {
+  background: linear-gradient(
+    115deg,
+    #0284c7 0%,
+    #38bdf8 10%,
+    #bae6fd 18%,
+    #ffffff 25%,
+    #e0f2fe 32%,
+    #0ea5e9 42%,
+    #0284c7 50%,
+    #38bdf8 60%,
+    #bae6fd 68%,
+    #ffffff 75%,
+    #e0f2fe 82%,
+    #0ea5e9 92%,
+    #0284c7 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: seamlessCrystalFlow 16s linear infinite;
+  filter: drop-shadow(0 4px 14px rgba(0, 0, 0, 0.95)) drop-shadow(0 0 22px rgba(56, 189, 248, 0.55));
+}
+
+/* Continuous horizontal marquee strip (Infinite, non-stopping even on hover) */
+@keyframes marqueeSeamless {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+.polar-marquee-track {
+  display: flex;
+  width: max-content;
+  animation: marqueeSeamless 36s linear infinite;
+  will-change: transform;
 }

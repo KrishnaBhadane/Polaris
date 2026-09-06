@@ -113,6 +113,20 @@ const contentSchema = new Schema<IContentDocument>(
       type: Date,
       default: null,
     },
+    removedBy: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
+    removedAt: {
+      type: Date,
+      default: null,
+    },
+    removalReason: {
+      type: String,
+      trim: true,
+      default: '',
+    },
   },
   {
     timestamps: true,

@@ -1,19 +1,31 @@
 # Dependencies
 node_modules/
+client/node_modules/
+server/node_modules/
 .pnp
 .pnp.js
 
 # Production builds
 dist/
+client/dist/
+server/dist/
 build/
 out/
 
+# Scratch & Temporary
+scratch/
+
 # Environment variables & secrets
 .env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env.*
+!.env.example
+*.env
+server/.env
+client/.env
+server/.env.local
+client/.env.local
+server/.env.production
+client/.env.production
 *.pem
 
 # Logs

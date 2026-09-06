@@ -35,6 +35,9 @@ export interface IContent {
   rejectionReason?: string;
   reviewedBy?: Types.ObjectId | null;
   reviewedAt?: Date | null;
+  removedBy?: Types.ObjectId | null;
+  removedAt?: Date | null;
+  removalReason?: string;
   createdAt: Date;
   updatedAt: Date;
 }

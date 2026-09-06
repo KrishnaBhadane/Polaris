@@ -1,9 +1,188 @@
 import { Request, Response, NextFunction } from 'express';
+import mongoose from 'mongoose';
 import { ScientistProfile } from '../models/scientistProfile.model';
 import { ScientistVerificationStatus } from '../types/scientist.types';
-import { AccountStatus } from '../types/user.types';
+import { AccountStatus, UserRole } from '../types/user.types';
+import {
+  uploadToCloudinary,
+  generateSignedDownloadUrl,
+} from '../services/cloudinary.service';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MAX_ID_PROOF_SIZE = 5 * 1024 * 1024; // 5 MB
+const ALLOWED_ID_PROOF_MIMES = [
+  'image/jpeg',
+  'image/jpg',
+  'image/png',
+  'application/pdf',
+];
+
+export const uploadScientistIdProof = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const user = req.user;
+    if (!user) {
+      res.status(401).json({
+        success: false,
+        message: 'Authentication required.',
+      });
+      return;
+    }
+
+    if (!user.emailVerified) {
+      res.status(403).json({
+        success: false,
+        message: 'Your email address must be verified before uploading ID proof.',
+      });
+      return;
+    }
+
+    if (user.accountStatus !== AccountStatus.ACTIVE) {
+      res.status(403).json({
+        success: false,
+        message: 'Your account is not active. Please contact support.',
+      });
+      return;
+    }
+
+    const file = req.file;
+    if (!file) {
+      res.status(400).json({
+        success: false,
+        message: 'No file provided for ID proof upload.',
+      });
+      return;
+    }
+
+    const mimeType = file.mimetype.toLowerCase();
+    const originalName = file.originalname.toLowerCase();
+
+    const isAllowedMime = ALLOWED_ID_PROOF_MIMES.includes(mimeType);
+    const isAllowedExt = /\.(jpg|jpeg|png|pdf)$/.test(originalName);
+
+    if (!isAllowedMime && !isAllowedExt) {
+      res.status(400).json({
+        success: false,
+        message:
+          'Unsupported file format. Accepted formats for ID proof are JPG, JPEG, PNG, and PDF.',
+      });
+      return;
+    }
+
+    if (file.size > MAX_ID_PROOF_SIZE) {
+      res.status(400).json({
+        success: false,
+        message: 'ID proof file size exceeds the 5 MB limit.',
+      });
+      return;
+    }
+
+    // Upload with type: "authenticated" to prevent unsigned public CDN access
+    const uploadResult = await uploadToCloudinary(
+      file.buffer,
+      'polaris/scientist-verification',
+      'auto',
+      `id_proof_${user._id}_${Date.now()}`,
+      'authenticated'
+    );
+
+    // Return private asset metadata - NEVER return a raw public/unsigned secure_url
+    res.status(200).json({
+      success: true,
+      message: 'ID proof uploaded securely as authenticated asset.',
+      publicId: uploadResult.publicId,
+      resourceType: uploadResult.resourceType,
+      deliveryType: 'authenticated',
+      format: uploadResult.format,
+      idProofUrl: uploadResult.publicId, // reference for apply form
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /api/scientist/id-proof/:applicationId
+ * Generates a signed, time-limited download URL for an authenticated scientist ID proof.
+ * Accessible ONLY by the applicant or an ADMIN.
+ */
+export const getScientistIdProof = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const user = req.user;
+    if (!user) {
+      res.status(401).json({
+        success: false,
+        message: 'Authentication required.',
+      });
+      return;
+    }
+
+    const { applicationId } = req.params;
+    let profile = null;
+
+    if (applicationId && typeof applicationId === 'string' && mongoose.Types.ObjectId.isValid(applicationId)) {
+      profile = await ScientistProfile.findById(applicationId);
+      if (!profile) {
+        profile = await ScientistProfile.findOne({ user: applicationId });
+      }
+    }
+
+    if (!profile) {
+      res.status(404).json({
+        success: false,
+        message: 'Scientist application not found.',
+      });
+      return;
+    }
+
+    // Authorization: Applicant or ADMIN
+    const isApplicant = profile.user.toString() === user._id.toString();
+    const isAdmin = user.role === UserRole.ADMIN;
+
+    if (!isApplicant && !isAdmin) {
+      res.status(403).json({
+        success: false,
+        message: 'Forbidden. Access restricted to the applicant or administrators.',
+      });
+      return;
+    }
+
+    const publicId = profile.idProofPublicId || profile.idProofUrl;
+    if (!publicId) {
+      res.status(404).json({
+        success: false,
+        message: 'No ID proof document found for this application.',
+      });
+      return;
+    }
+
+    const resourceType = profile.idProofResourceType || 'image';
+    const format = profile.idProofFormat || (publicId.endsWith('.pdf') ? 'pdf' : undefined);
+
+    // Generate signed download URL valid for 1 hour (3600 seconds)
+    const signedUrl = generateSignedDownloadUrl(publicId, format, resourceType, 3600);
+
+    res.status(200).json({
+      success: true,
+      signedUrl,
+      expiresIn: 3600,
+      publicId,
+      resourceType,
+      deliveryType: 'authenticated',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+
 
 export const applyScientist = async (
   req: Request,
@@ -45,6 +224,10 @@ export const applyScientist = async (
       officialEmail,
       employeeOrScientistId,
       idProofUrl,
+      idProofPublicId,
+      idProofResourceType,
+      idProofFormat,
+      idProofDeliveryType,
       bio,
     } = req.body;
 
@@ -105,10 +288,17 @@ export const applyScientist = async (
       return;
     }
 
-    if (!idProofUrl || typeof idProofUrl !== 'string' || idProofUrl.trim().length === 0) {
+    const resolvedIdProofPublicId =
+      typeof idProofPublicId === 'string' && idProofPublicId.trim().length > 0
+        ? idProofPublicId.trim()
+        : typeof idProofUrl === 'string' && idProofUrl.trim().length > 0
+        ? idProofUrl.trim()
+        : '';
+
+    if (!resolvedIdProofPublicId) {
       res.status(400).json({
         success: false,
-        message: 'ID proof URL or reference is required.',
+        message: 'ID proof document reference (publicId) is required.',
       });
       return;
     }
@@ -119,7 +309,9 @@ export const applyScientist = async (
     const trimmedResearchArea = researchArea.trim();
     const normalizedOfficialEmail = officialEmail.trim().toLowerCase();
     const trimmedEmployeeId = employeeOrScientistId.trim();
-    const trimmedIdProofUrl = idProofUrl.trim();
+    const resolvedResourceType = typeof idProofResourceType === 'string' ? idProofResourceType.trim() : 'image';
+    const resolvedFormat = typeof idProofFormat === 'string' ? idProofFormat.trim() : (resolvedIdProofPublicId.endsWith('.pdf') ? 'pdf' : undefined);
+    const resolvedDeliveryType = typeof idProofDeliveryType === 'string' ? idProofDeliveryType.trim() : 'authenticated';
     const trimmedBio = typeof bio === 'string' ? bio.trim() : '';
 
     // 3. Check for existing application
@@ -149,7 +341,11 @@ export const applyScientist = async (
       existingProfile.researchArea = trimmedResearchArea;
       existingProfile.officialEmail = normalizedOfficialEmail;
       existingProfile.employeeOrScientistId = trimmedEmployeeId;
-      existingProfile.idProofUrl = trimmedIdProofUrl;
+      existingProfile.idProofUrl = resolvedIdProofPublicId;
+      existingProfile.idProofPublicId = resolvedIdProofPublicId;
+      existingProfile.idProofResourceType = resolvedResourceType;
+      existingProfile.idProofFormat = resolvedFormat;
+      existingProfile.idProofDeliveryType = resolvedDeliveryType;
       existingProfile.bio = trimmedBio;
       existingProfile.verificationStatus = ScientistVerificationStatus.PENDING;
       existingProfile.rejectionReason = '';
@@ -170,8 +366,7 @@ export const applyScientist = async (
           researchArea: existingProfile.researchArea,
           officialEmail: existingProfile.officialEmail,
           employeeOrScientistId: existingProfile.employeeOrScientistId,
-          idProofUrl: existingProfile.idProofUrl,
-          bio: existingProfile.bio,
+          idProofPublicId: existingProfile.idProofPublicId,
           verificationStatus: existingProfile.verificationStatus,
           createdAt: existingProfile.createdAt,
         },
@@ -188,7 +383,11 @@ export const applyScientist = async (
       researchArea: trimmedResearchArea,
       officialEmail: normalizedOfficialEmail,
       employeeOrScientistId: trimmedEmployeeId,
-      idProofUrl: trimmedIdProofUrl,
+      idProofUrl: resolvedIdProofPublicId,
+      idProofPublicId: resolvedIdProofPublicId,
+      idProofResourceType: resolvedResourceType,
+      idProofFormat: resolvedFormat,
+      idProofDeliveryType: resolvedDeliveryType,
       bio: trimmedBio,
       verificationStatus: ScientistVerificationStatus.PENDING,
     });
@@ -205,8 +404,7 @@ export const applyScientist = async (
         researchArea: newProfile.researchArea,
         officialEmail: newProfile.officialEmail,
         employeeOrScientistId: newProfile.employeeOrScientistId,
-        idProofUrl: newProfile.idProofUrl,
-        bio: newProfile.bio,
+        idProofPublicId: newProfile.idProofPublicId,
         verificationStatus: newProfile.verificationStatus,
         createdAt: newProfile.createdAt,
       },

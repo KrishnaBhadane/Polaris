@@ -1,5 +1,4 @@
-export interface HealthResponse {
-  status: string;
-  timestamp?: string;
-  uptime?: number;
-}
+export * from './auth.types';
+export * from './content.types';
+export * from './expedition.types';
+export * from './scientist.types';

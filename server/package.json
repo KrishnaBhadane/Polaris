@@ -7,7 +7,8 @@
     "dev": "tsx watch src/server.ts",
     "build": "rimraf dist && tsc",
     "start": "node dist/server.js",
-    "seed:admin": "tsx src/scripts/seedAdmin.ts"
+    "seed:admin": "tsx src/scripts/seedAdmin.ts",
+    "seed:ncpor-demo": "tsx src/scripts/seedNcporDemoData.ts"
   },
   "keywords": [
     "express",
@@ -17,13 +18,17 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@google/genai": "^2.21.0",
     "bcrypt": "^6.0.0",
+    "cloudinary": "^2.11.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
+    "helmet": "^8.3.0",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^9.9.4",
+    "multer": "^2.3.0",
     "nodemailer": "^10.0.0"
   },
   "devDependencies": {
@@ -32,6 +37,7 @@
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
     "@types/jsonwebtoken": "^9.0.10",
+    "@types/multer": "^2.2.0",
     "@types/node": "^22.13.4",
     "@types/nodemailer": "^6.4.17",
     "rimraf": "^6.0.1",
