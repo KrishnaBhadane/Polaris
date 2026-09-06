@@ -21,6 +21,7 @@ export interface AuthResponse {
   success: boolean;
   message: string;
   user?: IUser;
+  retryAfterSeconds?: number;
 }
 
 export const loginApi = async (credentials: LoginCredentials): Promise<AuthResponse> => {
@@ -35,6 +36,11 @@ export const registerApi = async (data: RegisterCredentials): Promise<AuthRespon
 
 export const verifyEmailApi = async (payload: VerifyEmailPayload): Promise<AuthResponse> => {
   const response = await api.post<AuthResponse>('/auth/verify-email', payload);
+  return response.data;
+};
+
+export const resendOtpApi = async (email: string): Promise<AuthResponse> => {
+  const response = await api.post<AuthResponse>('/auth/resend-otp', { email });
   return response.data;
 };
 
@@ -56,3 +62,4 @@ export const getMeApi = async (): Promise<IUser> => {
 export const logoutApi = async (): Promise<void> => {
   await api.post('/auth/logout');
 };
+

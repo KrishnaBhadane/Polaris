@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Mail, KeyRound, Loader2, AlertCircle, CheckCircle2, ArrowRight, Sparkles } from 'lucide-react';
-import { verifyEmailApi } from '../services/auth.service';
+import { Mail, KeyRound, Loader2, AlertCircle, CheckCircle2, ArrowRight, Sparkles, RefreshCw } from 'lucide-react';
+import { verifyEmailApi, resendOtpApi } from '../services/auth.service';
 import polarisHeroBg from '../assets/polaris-hero-bg.png';
+
+const RESEND_COOLDOWN = 60; // seconds — mirrors server-side cooldown
 
 export const VerifyEmailPage: React.FC = () => {
   const location = useLocation();
@@ -14,6 +16,12 @@ export const VerifyEmailPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
+  // Resend state
+  const [resendLoading, setResendLoading] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0); // seconds remaining
+  const [resendSuccess, setResendSuccess] = useState<string | null>(null);
+  const cooldownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   const queryParams = new URLSearchParams(location.search);
   const emailParam = queryParams.get('email');
   const registeredParam = queryParams.get('registered') === 'true';
@@ -21,12 +29,37 @@ export const VerifyEmailPage: React.FC = () => {
   useEffect(() => {
     if (emailParam) {
       setEmail(emailParam);
+      // Start cooldown on first load when coming fresh from registration
+      if (registeredParam) {
+        startCooldown(RESEND_COOLDOWN);
+      }
     }
-  }, [emailParam]);
+  }, [emailParam]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    return () => {
+      if (cooldownRef.current) clearInterval(cooldownRef.current);
+    };
+  }, []);
+
+  const startCooldown = (seconds: number) => {
+    if (cooldownRef.current) clearInterval(cooldownRef.current);
+    setResendCooldown(seconds);
+    cooldownRef.current = setInterval(() => {
+      setResendCooldown((prev) => {
+        if (prev <= 1) {
+          if (cooldownRef.current) clearInterval(cooldownRef.current);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setResendSuccess(null);
 
     const cleanEmail = email.trim();
     const cleanOtp = otp.trim();
@@ -43,10 +76,7 @@ export const VerifyEmailPage: React.FC = () => {
 
     try {
       setLoading(true);
-      const res = await verifyEmailApi({
-        email: cleanEmail,
-        otp: cleanOtp,
-      });
+      const res = await verifyEmailApi({ email: cleanEmail, otp: cleanOtp });
 
       if (res.success) {
         setSuccess(true);
@@ -61,6 +91,41 @@ export const VerifyEmailPage: React.FC = () => {
       );
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleResend = async () => {
+    if (resendCooldown > 0 || resendLoading) return;
+    const cleanEmail = email.trim();
+    if (!cleanEmail) {
+      setError('Please enter your email address first.');
+      return;
+    }
+
+    setResendLoading(true);
+    setError(null);
+    setResendSuccess(null);
+
+    try {
+      const res = await resendOtpApi(cleanEmail);
+      if (res.success) {
+        setResendSuccess('New verification code sent! Check your inbox.');
+        setOtp('');
+        startCooldown(res.retryAfterSeconds ?? RESEND_COOLDOWN);
+      } else {
+        // Server returned cooldown info
+        if (res.retryAfterSeconds) {
+          startCooldown(res.retryAfterSeconds);
+        }
+        setError(res.message || 'Could not resend code. Please try again.');
+      }
+    } catch (err: any) {
+      const serverMsg = err.response?.data?.message;
+      const retryAfter = err.response?.data?.retryAfterSeconds;
+      if (retryAfter) startCooldown(retryAfter);
+      setError(serverMsg || err.message || "Couldn't resend code. Please try again.");
+    } finally {
+      setResendLoading(false);
     }
   };
 
@@ -127,6 +192,13 @@ export const VerifyEmailPage: React.FC = () => {
               </div>
             )}
 
+            {resendSuccess && !error && (
+              <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-700 flex items-start space-x-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                <span>{resendSuccess}</span>
+              </div>
+            )}
+
             <form onSubmit={handleSubmit} className="space-y-3.5">
               <div className="space-y-1">
                 <label className="text-xs font-semibold text-neutral-700 block">
@@ -188,9 +260,27 @@ export const VerifyEmailPage: React.FC = () => {
               <Link to="/login" className="hover:text-neutral-900">
                 Back to Sign In
               </Link>
-              <Link to="/register" className="text-sky-600 hover:text-sky-700 font-semibold">
-                New account
-              </Link>
+
+              {/* Resend OTP button with cooldown */}
+              <button
+                type="button"
+                onClick={handleResend}
+                disabled={resendCooldown > 0 || resendLoading}
+                className="flex items-center space-x-1 text-sky-600 hover:text-sky-700 font-semibold disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {resendLoading ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="w-3.5 h-3.5" />
+                )}
+                <span>
+                  {resendLoading
+                    ? 'Sending...'
+                    : resendCooldown > 0
+                    ? `Resend in ${resendCooldown}s`
+                    : 'Resend OTP'}
+                </span>
+              </button>
             </div>
           </>
         )}
