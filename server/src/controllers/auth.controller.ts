@@ -13,6 +13,21 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const COOKIE_NAME = 'polaris_token';
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
+/**
+ * Returns environment-aware cookie options.
+ * PRODUCTION : sameSite='none', secure=true  (required for cross-site cookies)
+ * DEVELOPMENT: sameSite='lax',  secure=false (works with http://localhost)
+ */
+const cookieOptions = (extraOptions?: { maxAge?: number }) => {
+  const isProduction = config.nodeEnv === 'production';
+  return {
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: (isProduction ? 'none' : 'lax') as 'none' | 'lax',
+    ...extraOptions,
+  };
+};
+
 export const register = async (
   req: Request,
   res: Response,
@@ -246,12 +261,7 @@ export const login = async (
     });
 
     // 6. Set HTTP-only cookie
-    res.cookie(COOKIE_NAME, token, {
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: config.nodeEnv === 'production',
-      maxAge: SEVEN_DAYS_MS,
-    });
+    res.cookie(COOKIE_NAME, token, cookieOptions({ maxAge: SEVEN_DAYS_MS }));
 
     res.status(200).json({
       success: true,
@@ -296,11 +306,7 @@ export const getMe = async (
 };
 
 export const logout = (req: Request, res: Response): void => {
-  res.clearCookie(COOKIE_NAME, {
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: config.nodeEnv === 'production',
-  });
+  res.clearCookie(COOKIE_NAME, cookieOptions());
 
   res.status(200).json({
     success: true,
