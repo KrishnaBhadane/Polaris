@@ -128,6 +128,123 @@ RESEARCH METADATA:
 `.trim();
 }
 
+/**
+ * Formats research information specifically for social media outreach prompts.
+ * Deliberately excludes raw media/file URLs and avoids outputting 'Not provided' filler lines.
+ */
+function formatOutreachSourceMetadata(content: IContentDocument): string {
+  const lines: string[] = ['RESEARCH INFORMATION:'];
+  if (content.title?.trim()) {
+    lines.push(`- Title: ${content.title.trim()}`);
+  }
+  if (content.description?.trim()) {
+    lines.push(`- Description: ${content.description.trim()}`);
+  }
+  if (content.type?.trim()) {
+    lines.push(`- Content Type: ${content.type.trim()}`);
+  }
+  if (content.scientistName?.trim()) {
+    lines.push(`- Contributor / Scientist: ${content.scientistName.trim()}`);
+  }
+  if (content.institution?.trim()) {
+    lines.push(`- Institution: ${content.institution.trim()}`);
+  }
+  if (content.region?.trim()) {
+    lines.push(`- Geographic Region: ${content.region.trim()}`);
+  }
+  if (content.expedition?.trim()) {
+    lines.push(`- Expedition / Mission: ${content.expedition.trim()}`);
+  }
+  if (content.year) {
+    lines.push(`- Year: ${content.year}`);
+  }
+  if (content.researchTopic?.trim()) {
+    lines.push(`- Topic: ${content.researchTopic.trim()}`);
+  }
+  if (content.keywords && content.keywords.length > 0) {
+    const valid = content.keywords.filter((k) => k?.trim());
+    if (valid.length > 0) {
+      lines.push(`- Keywords: ${valid.join(', ')}`);
+    }
+  }
+  return lines.join('\n');
+}
+
+/**
+ * Quality guard for social media outreach drafts:
+ * - Removes any raw media / Cloudinary / file URLs
+ * - Removes any metadata headers or bullet list labels (e.g. 'Research Context:')
+ * - Removes any missing-value filler lines (e.g. 'Not available', 'N/A')
+ * - Removes generic corporate / AI boilerplate openers
+ * - Cleans and deduplicates hashtags to fit platform standards
+ */
+export function cleanOutreachDraft(
+  rawText: string,
+  format: OutreachFormat,
+  _language: AILanguage = 'EN'
+): string {
+  if (!rawText) return '';
+  let text = rawText.trim();
+
+  // 1. Strip raw Cloudinary or other file URLs
+  text = text.replace(/https?:\/\/[^\s)]+\.(pdf|png|jpg|jpeg|webp|mp4|mov|csv|xlsx|zip)[^\s)]*/gi, '');
+  text = text.replace(/https?:\/\/res\.cloudinary\.com[^\s)]*/gi, '');
+  text = text.replace(/https?:\/\/(?:www\.)?polaris\.ncpor\.res\.in[^\s)]*/gi, '');
+
+  // 2. Strip metadata bullet dumps and label lines
+  text = text.replace(
+    /(?:^|\n)\s*(?:[-*•]\s*)?(?:###?\s*)?(?:Research Context|Research Information|Research Type|Content Type|Geographic Region|Expedition|Expedition \/ Mission|Research Domain|External Reference|Associated File URL|Principal Scientist|Contributor \/ Scientist|Author|Institution|Expedition Year|Focus Topic|Topic|Keywords)\s*:\s*[^\n]*/gi,
+    ''
+  );
+
+  // 3. Strip missing-value label artifacts like "External Reference: Not available", "DOI: N/A"
+  text = text.replace(/(?:^|\n)[^\n]*(?:not available|not provided|n\/a|unavailable)[^\n]*/gi, '');
+
+  // 4. Strip generic corporate AI openers if present at start
+  text = text.replace(/^POLARIS is pleased to (?:highlight|announce|present)[^\n.!?]*[.!?]?\s*/i, '');
+  text = text.replace(/^We are delighted to (?:announce|share|highlight)[^\n.!?]*[.!?]?\s*/i, '');
+  text = text.replace(/^We invite researchers to[^\n.!?]*[.!?]?\s*/i, '');
+  text = text.replace(/^In today's rapidly changing world[^\n.!?]*[.!?]?\s*/i, '');
+
+  // 5. Deduplicate and clean hashtags
+  const hashtagRegex = /#([A-Za-z0-9_\u0900-\u097F]+)/g;
+  const foundHashtags: string[] = [];
+  let match;
+  while ((match = hashtagRegex.exec(text)) !== null) {
+    foundHashtags.push(match[0]);
+  }
+
+  // Remove hashtags from text body to place cleanly at the end
+  text = text.replace(/#([A-Za-z0-9_\u0900-\u097F]+)/g, '').trim();
+
+  // Deduplicate preserving order
+  const uniqueHashtags: string[] = [];
+  const seenLower = new Set<string>();
+  for (const tag of foundHashtags) {
+    const lower = tag.toLowerCase();
+    if (!seenLower.has(lower)) {
+      seenLower.add(lower);
+      uniqueHashtags.push(tag);
+    }
+  }
+
+  // Limit hashtags based on platform:
+  // LinkedIn: 3–5
+  // Instagram: 4–7
+  const maxTags = format === OutreachFormat.LINKEDIN ? 5 : 7;
+  const selectedTags = uniqueHashtags.slice(0, maxTags);
+
+  if (selectedTags.length > 0) {
+    text = `${text}\n\n${selectedTags.join(' ')}`;
+  }
+
+  // 6. Clean up excessive whitespace
+  text = text.replace(/[ \t]+/g, ' ');
+  text = text.replace(/\n{3,}/g, '\n\n').trim();
+
+  return text;
+}
+
 function buildLanguageInstructions(language: AILanguage): string {
   if (language === 'HI') {
     return `
@@ -423,146 +540,95 @@ function buildOutreachPrompt(
   language: AILanguage = 'EN',
   variantIndex: number = 1
 ): string {
-  const metadataText = formatMetadataText(content);
+  const metadataText = formatOutreachSourceMetadata(content);
   const sourceContext = hasPdf
-    ? 'the attached scientific PDF document and the research metadata below'
-    : 'the research metadata below';
-  const langInstructions = buildLanguageInstructions(language);
+    ? 'the attached scientific PDF document and the research information below'
+    : 'the research information below';
   const variationInstructions = buildVariationInstructions(variantIndex, true);
 
-  const baseInstructions = `
-CRITICAL INSTRUCTIONS & SOURCE GROUNDING:
-1. Base your outreach draft STRICTLY on ${sourceContext}.
-2. DO NOT invent, assume, or hallucinate scientific facts, statistics, numbers, findings, or claims not present in the source.
-3. If specific details are missing, omit them or clearly indicate they are unavailable.
-4. Output ONLY the publication draft ready for human review, editing, and copying. Do not include extraneous conversational filler.
-${langInstructions}
+  const langInstruction =
+    language === 'HI'
+      ? `
+LANGUAGE (HINDI - हिंदी):
+- Write in authentic, natural, and fluent Devanagari Hindi (हिंदी) science communication.
+- DO NOT produce awkward literal word-for-word translation.
+- If any detail is not mentioned, simply omit it. NEVER write meta-notes like "उपलब्ध नहीं है" or "विवरण उपलब्ध नहीं है".
+`.trim()
+      : `
+LANGUAGE (ENGLISH):
+- Write in clear, natural, human, grammatically flawless English.
+- If any detail is missing from the source, simply omit it. NEVER write "N/A", "Not available", "Not provided", or mention missing fields.
+`.trim();
+
+  const coreRules = `
+CRITICAL SOCIAL COPYWRITING RULES:
+1. Base your post STRICTLY on ${sourceContext}.
+2. NEVER invent breakthroughs, discoveries, statistics, numbers, trends, environmental impacts, or conclusions not in the source. If the research is simple field photography, observation, or dataset with modest metadata, keep the description modest and truthful (e.g. "This visual documentation captures...", "These field observations contribute to recording polar conditions...").
+3. NEVER output metadata headers, section titles, or bullet lists (e.g. NEVER write "Research Context:", "Research Type:", "Expedition:", "Geographic Region:", "External Reference:"). Write in natural, flowing prose paragraphs only.
+4. NEVER output raw file URLs, Cloudinary links, or website URLs in the text. Media is attached separately by the application.
+5. NEVER use generic AI or corporate filler phrases (e.g. NEVER use "POLARIS is pleased to highlight", "We are delighted to announce", "We invite researchers to engage", "In today's rapidly changing world", "This groundbreaking effort").
+6. Omit missing information completely. Never write "Not available", "N/A", or "Not provided".
+${langInstruction}
 ${variationInstructions ? '\n' + variationInstructions : ''}
 `.trim();
 
   switch (format) {
-    case OutreachFormat.WEBSITE:
-      return `
-You are a science communications specialist for the POLARIS polar scientific portal.
-Generate a comprehensive, engaging website article draft about this scientific research based on ${sourceContext} in ${language === 'HI' ? 'Hindi (हिंदी)' : 'English'}.
-
-${metadataText}
-
-${baseInstructions}
-
-STRUCTURE YOUR OUTPUT EXACTLY AS FOLLOWS:
-# [${language === 'HI' ? 'आकर्षक और सटीक लेख का शीर्षक' : 'Catchy & Accurate Article Title'}]
-
-**[${language === 'HI' ? 'संक्षिप्त परिचय (2-3 वाक्य)' : 'Short Introduction (2-3 sentences providing the hook and high-level summary)'}]**
-
-[${language === 'HI' ? '2 से 4 पठनीय, आकर्षक पैराग्राफ जो अनुसंधान संदर्भ, विधियों और वास्तविक दुनिया के निहितार्थों की व्याख्या करते हैं' : '2 to 4 readable, engaging paragraphs explaining the research context, methods, and real-world implications without jargon'}]
-
-### ${language === 'HI' ? 'मुख्य मुख्य बातें (Key Highlights)' : 'Key Highlights'}
-- [${language === 'HI' ? 'हाइलाइट 1: मुख्य खोज या प्राथमिक निष्कर्ष' : 'Highlight 1: Core discovery or primary takeaway'}]
-- [${language === 'HI' ? 'हाइलाइट 2: महत्वपूर्ण अवलोकन या कार्यप्रणाली' : 'Highlight 2: Critical observation, measurement, or methodology'}]
-- [${language === 'HI' ? 'हाइलाइट 3: भौगोलिक संदर्भ या अभियान उपलब्धि' : 'Highlight 3: Geographic context or expedition achievement'}]
-- [${language === 'HI' ? 'हाइलाइट 4: भविष्य का प्रभाव या वैज्ञानिक महत्व' : 'Highlight 4: Future impact or scientific importance'}]
-
----
-*${language === 'HI' ? 'POLARIS AI आउटरीच स्टूडियो द्वारा शोधकर्ता समीक्षा के लिए तैयार किया गया ड्राफ्ट।' : 'Draft generated by POLARIS AI Outreach Studio for researcher review.'}*
-`.trim();
-
     case OutreachFormat.LINKEDIN:
       return `
-You are a professional science communications manager for the POLARIS research platform.
-Generate a high-impact, professional LinkedIn post draft announcing this research based on ${sourceContext} in ${language === 'HI' ? 'Hindi (हिंदी)' : 'English'}.
+You are writing a professional, human LinkedIn post about polar and marine research for the POLARIS scientific community.
+
+${coreRules}
 
 ${metadataText}
 
-${baseInstructions}
+LENGTH & TONE:
+- Target length: roughly 100 to 180 words.
+- Tone: professional, scientific, accessible, human, and concise.
+- Avoid clickbait, fake excitement, excessive emojis, and report formatting.
 
-FORMAT REQUIREMENTS:
-- Clear headline hook for professional and academic audiences
-- 2-3 concise paragraphs summarizing the research goal, key scientific findings, and institutional collaboration
-- Call to action encouraging peers to explore the full publication on POLARIS
-- 3 to 5 highly relevant hashtags (e.g. #PolarResearch #ClimateScience #Glaciology ${language === 'HI' ? '#ध्रुवीयअनुसंधान' : ''})
+STRUCTURE:
+1. Strong, factual opening hook (engaging, thoughtful, and grounded in the subject).
+2. 2 to 3 short paragraphs naturally explaining what was studied or documented, weaving in the author, institution, or expedition context where relevant.
+3. Why this research or documentation matters to polar and marine science, long-term monitoring, or environmental understanding.
+4. Exactly 3 to 5 relevant, clean scientific hashtags at the very end.
 
----
-*${language === 'HI' ? 'POLARIS AI आउटरीच स्टूडियो द्वारा शोधकर्ता समीक्षा के लिए तैयार किया गया ड्राफ्ट।' : 'Draft generated by POLARIS AI Outreach Studio for researcher review.'}*
-`.trim();
-
-    case OutreachFormat.X:
-      return `
-You are a social media specialist for POLARIS scientific research.
-Generate an engaging, concise post (tweet) for X (formerly Twitter) based on ${sourceContext} in ${language === 'HI' ? 'Hindi (हिंदी)' : 'English'}.
-
-${metadataText}
-
-${baseInstructions}
-
-STRICT CONSTRAINTS:
-1. The ENTIRE draft MUST NOT EXCEED 280 characters total, including text, emojis, and hashtags.
-2. Must capture the core scientific discovery or mission highlight.
-3. Include 1-2 short hashtags (e.g., #PolarisResearch #Antarctica).
-4. Do NOT exceed 280 characters under any circumstances.
+OUTPUT ONLY the final LinkedIn post copy ready to publish. Do not include markdown headers or meta-notes.
 `.trim();
 
     case OutreachFormat.INSTAGRAM:
       return `
-You are a creative science communicator for the POLARIS polar research Instagram channel.
-Generate a visual-friendly, public-accessible Instagram caption draft based on ${sourceContext} in ${language === 'HI' ? 'Hindi (हिंदी)' : 'English'}.
+You are writing a warm, engaging, and accessible Instagram caption about polar and marine research for the POLARIS community.
+
+${coreRules}
 
 ${metadataText}
 
-${baseInstructions}
+LENGTH & TONE:
+- Target length: roughly 60 to 120 words (distinctly shorter, warmer, and more conversational than LinkedIn).
+- Tone: accessible, curious, visual, human. NOT academic or report-like.
+- Use at most 0 to 2 tasteful emojis (e.g. ❄️, 🌊, 🧭, 🔬).
 
-FORMAT REQUIREMENTS:
-- Catchy first line / hook with relevant emojis ❄️🧭🔬
-- Accessible, story-driven explanation of what was studied and discovered
-- Call-to-action (e.g., "Link in bio to read the full report on POLARIS")
-- A clean block of 5 to 8 relevant hashtags (e.g. #PolarResearch #Antarctica #ScienceCommunication #ClimateAction #FieldScience)
+STRUCTURE:
+1. Short, captivating hook.
+2. 1 to 2 simple, conversational sentences explaining what this observation, photo, or research captures.
+3. Why it matters to polar environments, ocean ecosystems, or our planet.
+4. Exactly 4 to 7 clean, relevant hashtags at the end.
 
----
-*${language === 'HI' ? 'POLARIS AI आउटरीच स्टूडियो द्वारा शोधकर्ता समीक्षा के लिए तैयार किया गया ड्राफ्ट।' : 'Draft generated by POLARIS AI Outreach Studio for researcher review.'}*
+OUTPUT ONLY the final Instagram caption copy ready to publish. Do not include markdown headers or meta-notes.
 `.trim();
 
-    case OutreachFormat.STUDENT:
-      const studentHeadings =
-        language === 'HI'
-          ? `### मुख्य प्रश्न (The Big Question)
-(वैज्ञानिकों ने किस प्रश्न का उत्तर खोजने का प्रयास किया?)
-
-### बर्फ पर क्या हुआ? (What Happened on the Ice?)
-(सरल और रोज़मर्रा की भाषा में बताएं कि शोधकर्ताओं ने क्या देखा या पाया)
-
-### हमारे ग्रह के लिए यह क्यों महत्वपूर्ण है (Why It Matters to Our Planet)
-(समझाएं कि यह पृथ्वी की जलवायु और भविष्य से कैसे जुड़ता है)
-
-### रोचक तथ्य / मुख्य सीख (Fun Fact / Key Takeaway)
-(छात्रों के लिए एक यादगार और प्रेरक सीख)`
-          : `### The Big Question
-(What question did the scientists set out to answer?)
-
-### What Happened on the Ice?
-(Explain what the researchers observed or found in simple, everyday language)
-
-### Why It Matters to Our Planet
-(Explain how this connects to Earth's climate and future)
-
-### Fun Fact / Key Takeaway
-(One memorable, inspiring takeaway for students)`;
-
+    default:
       return `
-You are an enthusiastic educator explaining polar science to students and young scientists.
-Generate a simple, educational explanation draft based on ${sourceContext} in ${language === 'HI' ? 'Hindi (हिंदी)' : 'English'}.
+You are a science communicator for POLARIS.
+${coreRules}
 
 ${metadataText}
-
-${baseInstructions}
-
-STRUCTURE YOUR OUTPUT WITH CLEAR, SIMPLE SECTIONS:
-${studentHeadings}
-
----
-*${language === 'HI' ? 'POLARIS AI आउटरीच स्टूडियो द्वारा शोधकर्ता समीक्षा के लिए तैयार किया गया ड्राफ्ट।' : 'Draft generated by POLARIS AI Outreach Studio for researcher review.'}*
+Write a concise post draft about this research.
 `.trim();
   }
 }
+
+
 
 /**
  * Resolves a download URL, signing with Cloudinary API credentials if hosted on Cloudinary.
@@ -686,9 +752,7 @@ async function generateMetadataOutreach(
     throw new Error('Unable to synthesize outreach draft.');
   }
 
-  if (format === OutreachFormat.X && text.length > 280) {
-    text = text.slice(0, 277) + '...';
-  }
+  text = cleanOutreachDraft(text, format, language);
 
   return text;
 }
@@ -778,7 +842,7 @@ export async function generateContentSummary(
  */
 export async function generateContentOutreach(
   content: IContentDocument,
-  format: OutreachFormat = OutreachFormat.WEBSITE,
+  format: OutreachFormat = OutreachFormat.LINKEDIN,
   language: AILanguage = 'EN',
   variantIndex: number = 1
 ): Promise<OutreachResult> {
@@ -818,9 +882,7 @@ export async function generateContentOutreach(
         throw new Error('Unable to synthesize PDF outreach draft.');
       }
 
-      if (format === OutreachFormat.X && text.length > 280) {
-        text = text.slice(0, 277) + '...';
-      }
+      text = cleanOutreachDraft(text, format, language);
 
       return {
         draft: text,

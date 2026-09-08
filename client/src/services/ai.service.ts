@@ -2,7 +2,7 @@ import { api } from './api';
 
 export type SummaryMode = 'QUICK' | 'STUDENT' | 'TECHNICAL';
 
-export type OutreachFormat = 'WEBSITE' | 'LINKEDIN' | 'X' | 'INSTAGRAM' | 'STUDENT';
+export type OutreachFormat = 'LINKEDIN' | 'INSTAGRAM';
 
 export type AILanguage = 'EN' | 'HI';
 
@@ -40,7 +40,7 @@ export const generateAISummary = async (
 
 export const generateAIOutreach = async (
   contentId: string,
-  format: OutreachFormat = 'WEBSITE',
+  format: OutreachFormat = 'LINKEDIN',
   language: AILanguage = 'EN',
   regenerate: boolean = false
 ): Promise<AIOutreachResponse> => {

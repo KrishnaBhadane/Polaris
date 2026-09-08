@@ -537,18 +537,32 @@ export const generateOutreach = async (
       return;
     }
 
-    // 3. Validate outreach format (default: WEBSITE)
+    // 2b. Backend ownership enforcement: content must belong to the authenticated user
+    const contentOwnerId = content.scientist?.toString();
+    const currentUserId = req.user?._id?.toString();
+    if (!contentOwnerId || contentOwnerId !== currentUserId) {
+      res.status(403).json({
+        success: false,
+        message: 'Forbidden. You can only generate outreach drafts for your own published research.',
+      });
+      return;
+    }
+
+    // 3. Validate outreach format (Allowed: LINKEDIN, INSTAGRAM; default: LINKEDIN)
     const rawFormat = req.body?.format;
-    let format = OutreachFormat.WEBSITE;
+    let format = OutreachFormat.LINKEDIN;
 
     if (rawFormat) {
       const upperFormat = String(rawFormat).trim().toUpperCase();
-      if (Object.values(OutreachFormat).includes(upperFormat as OutreachFormat)) {
+      if (
+        upperFormat === OutreachFormat.LINKEDIN ||
+        upperFormat === OutreachFormat.INSTAGRAM
+      ) {
         format = upperFormat as OutreachFormat;
       } else {
         res.status(400).json({
           success: false,
-          message: `Invalid outreach format. Allowed formats are: ${Object.values(OutreachFormat).join(', ')}`,
+          message: 'Invalid outreach format. Allowed formats are: LINKEDIN, INSTAGRAM',
         });
         return;
       }
@@ -586,6 +600,17 @@ export const generateOutreach = async (
       logger.info(
         `[AICache] Content ${contentId} updatedAt changed. Invalidating old outreach cache [${format}/${language}].`
       );
+      await AICache.deleteOne({ _id: cachedEntry._id });
+      cachedEntry = null;
+    }
+
+    // Invalidate legacy report-style outreach cache if it contains deprecated corporate or report markers
+    if (
+      cachedEntry &&
+      cachedEntry.result &&
+      (/POLARIS is pleased to|Research Context:|External Reference:|https?:\/\//i.test(cachedEntry.result))
+    ) {
+      logger.info(`[AICache] Invalidating legacy report-style outreach cache for ${contentId}.`);
       await AICache.deleteOne({ _id: cachedEntry._id });
       cachedEntry = null;
     }
