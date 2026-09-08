@@ -2,6 +2,7 @@ import React from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { Navbar } from './Navbar';
 import { Footer } from './Footer';
+import { MayaWidget } from '../maya/MayaWidget';
 
 interface PageLayoutProps {
   children?: React.ReactNode;
@@ -21,6 +22,9 @@ export const PageLayout: React.FC<PageLayoutProps> = ({ children }) => {
       </main>
       
       <Footer />
+
+      {/* Maya Scientific Assistant */}
+      <MayaWidget />
     </div>
   );
 };

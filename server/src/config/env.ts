@@ -50,6 +50,10 @@ export const config = {
   geminiApiKey: process.env.GEMINI_API_KEY || '',
   geminiFastModel: process.env.GEMINI_FAST_MODEL || 'gemini-3.5-flash-lite',
   geminiStrongModel: process.env.GEMINI_STRONG_MODEL || 'gemini-3.5-flash',
+  searchApiKey: process.env.SEARCHAPI_API_KEY || '',
+  elevenLabsApiKey: process.env.ELEVENLABS_API_KEY || '',
+  elevenLabsVoiceId: process.env.ELEVENLABS_VOICE_ID || '',
+  elevenLabsTtsModel: process.env.ELEVENLABS_TTS_MODEL || 'eleven_flash_v2_5',
 };
 
 /**

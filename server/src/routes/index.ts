@@ -7,6 +7,7 @@ import contentRoutes from './content.routes';
 import publicRoutes from './public.routes';
 import uploadRoutes from './upload.routes';
 import aiRoutes from './ai.routes';
+import mayaRoutes from './maya.routes';
 
 const router = Router();
 
@@ -19,6 +20,7 @@ router.use('/content', contentRoutes);
 router.use('/public', publicRoutes);
 router.use('/upload', uploadRoutes);
 router.use('/ai', aiRoutes);
+router.use('/maya', mayaRoutes);
 
 export default router;
 
