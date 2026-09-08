@@ -64,6 +64,11 @@ export const App: React.FC = () => {
               <Route path="/scientist/dashboard" element={<ScientistDashboardPage />} />
               <Route path="/scientist/upload" element={<ScientistUploadPage />} />
               <Route path="/scientist/submissions" element={<ScientistSubmissionsPage />} />
+            </Route>
+
+            {/* PROTECTED SCIENTIST ONLY ROUTES */}
+            <Route element={<RoleRoute allowedRoles={['SCIENTIST']} />}>
+              <Route path="/outreach" element={<OutreachStudioPage />} />
               <Route path="/outreach/:contentId" element={<OutreachStudioPage />} />
             </Route>
 

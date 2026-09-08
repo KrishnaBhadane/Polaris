@@ -18,7 +18,13 @@ export const Navbar: React.FC = () => {
   };
 
   const isActive = (path: string) => {
-    if (path === '/') return location.pathname === '/';
+    if (path === '/') return location.pathname === '/' && !location.search.includes('tab=outreach');
+    if (path === '/outreach') {
+      return (
+        location.pathname.startsWith('/outreach') ||
+        (location.pathname === '/' && location.search.includes('tab=outreach'))
+      );
+    }
     return location.pathname.startsWith(path);
   };
 
@@ -98,6 +104,16 @@ export const Navbar: React.FC = () => {
                 }`}
               >
                 {t('nav.submissions', 'Submissions')}
+              </Link>
+              <Link
+                to="/outreach"
+                className={`text-xs font-medium tracking-wide transition-colors ${
+                  isActive('/outreach')
+                    ? 'text-sky-400 font-semibold'
+                    : 'text-slate-300 hover:text-white'
+                }`}
+              >
+                {t('nav.outreach', 'Outreach')}
               </Link>
             </>
           ) : authenticated && user?.role === 'ADMIN' ? (
@@ -398,6 +414,17 @@ export const Navbar: React.FC = () => {
                 className="block px-3 py-1.5 text-xs font-medium text-slate-200 hover:text-white hover:bg-white/5 rounded-lg"
               >
                 {t('nav.mySubmissions', 'MY SUBMISSIONS')}
+              </Link>
+              <Link
+                to="/outreach"
+                onClick={() => setMobileMenuOpen(false)}
+                className={`block px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                  isActive('/outreach')
+                    ? 'text-sky-400 bg-white/10 font-semibold'
+                    : 'text-slate-200 hover:text-white hover:bg-white/5'
+                }`}
+              >
+                {t('nav.outreach', 'OUTREACH')}
               </Link>
             </>
           ) : authenticated && user?.role === 'ADMIN' ? (

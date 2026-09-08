@@ -39,9 +39,9 @@ export const ResearchSummaryWorkspace: React.FC = () => {
   const { t, i18n } = useTranslation();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  // Role Access Check: Only SCIENTIST and ADMIN can access Outreach Studio
+  // Role Access Check: Only SCIENTIST can access Outreach Studio
   const canAccessOutreach = Boolean(
-    authenticated && (user?.role === 'SCIENTIST' || user?.role === 'ADMIN')
+    authenticated && user?.role === 'SCIENTIST'
   );
 
   const initialTab =
@@ -62,6 +62,12 @@ export const ResearchSummaryWorkspace: React.FC = () => {
     const tab = searchParams.get('tab');
     if (tab === 'outreach' && canAccessOutreach) {
       setWorkspaceMode('OUTREACH');
+      requestAnimationFrame(() => {
+        const el = document.getElementById('summary-section');
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth' });
+        }
+      });
     } else if (tab === 'outreach' && !canAccessOutreach) {
       setWorkspaceMode('SUMMARY');
       setSearchParams((prev) => {

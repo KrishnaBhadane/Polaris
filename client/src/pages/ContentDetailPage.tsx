@@ -78,7 +78,7 @@ const typeBadgeStyles: Record<
 export const ContentDetailPage: React.FC = () => {
   const { user, authenticated } = useAuth();
   const canAccessOutreach = Boolean(
-    authenticated && (user?.role === 'SCIENTIST' || user?.role === 'ADMIN')
+    authenticated && user?.role === 'SCIENTIST'
   );
 
   const { id } = useParams<{ id: string }>();

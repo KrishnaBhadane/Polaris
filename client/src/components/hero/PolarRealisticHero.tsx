@@ -338,6 +338,12 @@ export const PolarRealisticHero: React.FC<PolarRealisticHeroProps> = ({ onSearch
                 >
                   {t('nav.submissions', 'Submissions')}
                 </Link>
+                <Link
+                  to="/outreach"
+                  className="text-xs font-medium tracking-wide text-slate-300 hover:text-white transition-colors"
+                >
+                  {t('nav.outreach', 'Outreach')}
+                </Link>
               </>
             ) : authenticated && user?.role === 'ADMIN' ? (
               <>
@@ -605,6 +611,13 @@ export const PolarRealisticHero: React.FC<PolarRealisticHeroProps> = ({ onSearch
                   className="block px-3 py-1.5 text-xs font-medium text-white hover:bg-white/10 rounded-lg"
                 >
                   {t('nav.mySubmissions', 'MY SUBMISSIONS')}
+                </Link>
+                <Link
+                  to="/outreach"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="block px-3 py-1.5 text-xs font-medium text-white hover:bg-white/10 rounded-lg"
+                >
+                  {t('nav.outreach', 'OUTREACH')}
                 </Link>
               </>
             ) : authenticated && user?.role === 'ADMIN' ? (
